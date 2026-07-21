@@ -53,13 +53,14 @@ uvicorn src.api.app:app --reload
 ```
 Once running, you can access the interactive OpenAPI docs at `http://localhost:8000/docs`.
 
-To analyze a contract via the API:
+### Frontend UI (Slice 4)
+Requires the API to be running on port 8000.
 ```bash
-curl -X POST "http://localhost:8000/api/v1/contracts/analyze" \
-  -H "accept: application/json" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@sample_data/sample_contract.txt"
+cd frontend
+npm install
+npm run dev
 ```
+Open `http://localhost:3000` to access the Human Review Workspace.
 
 The sample contract has one deliberately critical clause (uncapped
 liability), one medium clause (unilateral termination with no notice),
