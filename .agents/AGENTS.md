@@ -16,15 +16,15 @@ The Legal AI Contract Compliance Platform is an enterprise-grade solution design
 - **API Layer:** FastAPI with `uvicorn` and Pydantic models for the HTTP boundary.
 - **Data Models:** Currently `dataclasses` (no network install at project start), migrating to `pydantic` in the future (FR-105).
 
-## Current Status (End of Slice 3)
+## Current Status (End of Slice 4)
 1. **Slice 1 (Core Pipeline):** Completed. Ingestion, Orchestrator, Mock Agents, Mock Qdrant retrieval, and base pipeline logic are working end-to-end via CLI.
 2. **Slice 2 (Deterministic Policy Validator):** Completed. Enforces business rules (FR-106). Escalate risks based on corporate policy matches (from RAG) and mandates human review for low confidence (< 0.8) or high/critical risk. 
 3. **Slice 3 (FastAPI Wrapper):** Completed. Exposes the synchronous pipeline over HTTP via `POST /api/v1/contracts/analyze`. Uses Pydantic for response models.
+4. **Slice 4 (Human Review Workspace UI):** Completed. A Next.js (App Router, Tailwind, Shadcn) frontend built for `Vishnu` interacting with the FastAPI backend, displaying risks, confidence bars, and executing redline reviews.
 
 **Tests:** 36/36 tests are passing.
 
 ## Next Steps / Future Sprints
-- **Slice 4 (Human Review Workspace UI):** Build a frontend application to consume the API, display the `policy_decisions` and `redlines`, and capture user feedback.
 - **Pydantic Migration (FR-105):** Refactor `src/models/schemas.py` to use Pydantic native validators instead of `dataclasses`. (Highly recommended to ensure LLM payload strictness).
 - **Un-mocking (Production Connections):**
   - Implement real Google ADK LLM network calls in the agents.
