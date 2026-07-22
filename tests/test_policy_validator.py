@@ -17,6 +17,7 @@ from src.models.schemas import (
     RiskLevel,
     SchemaValidationError,
 )
+from pydantic import ValidationError
 from src.rules.deterministic_policy_validator import DeterministicPolicyValidator
 
 
@@ -226,16 +227,15 @@ class TestPolicyDecisionValidation(unittest.TestCase):
     """PolicyDecision.validate() rejects impossible states."""
 
     def test_final_risk_below_original_raises(self):
-        decision = PolicyDecision(
-            finding_id="F-test",
-            clause_id="C-test",
-            original_risk_level=RiskLevel.HIGH,
-            original_confidence=0.90,
-            final_risk_level=RiskLevel.LOW,  # invalid: can't go down
-            requires_human_review=False,
-        )
-        with self.assertRaises(SchemaValidationError):
-            decision.validate()
+        with self.assertRaises(ValidationError):
+            PolicyDecision(
+                finding_id="F-test",
+                clause_id="C-test",
+                original_risk_level=RiskLevel.HIGH,
+                original_confidence=0.90,
+                final_risk_level=RiskLevel.LOW,  # invalid: can't go down
+                requires_human_review=False,
+            )
 
     def test_same_risk_level_passes_validation(self):
         decision = PolicyDecision(

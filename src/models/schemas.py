@@ -8,28 +8,17 @@ PRD traceability:
     FR-105  Structured Output Validation -> validate() on every model below
     FR-107  Human-in-the-Loop Feedback -> PipelineResult.flagged_for_review
 
-Production note (FR-105 says "Validate all LLM outputs against Pydantic
-schemas"): these are plain dataclasses, not pydantic.BaseModel, because this
-sandbox has no network access to `pip install pydantic`. They mirror the
-field names/types pydantic models would use and each carries its own
-validate() method, so migrating is mechanical:
-
-    @dataclass                      class Clause(BaseModel):
-    class Clause:               ->      clause_id: str
-        clause_id: str                  ...
-        ...                          (drop validate(), add pydantic validators)
-
-requirements.txt lists pydantic under the "next step" section for exactly
-this swap once the environment has package access.
+Production note: these are now Pydantic models.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import Optional, List
 import uuid
+
+from pydantic import BaseModel, Field, model_validator
 
 
 class SchemaValidationError(ValueError):
@@ -64,54 +53,59 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-@dataclass
-class Clause:
+class Clause(BaseModel):
     """One segmented clause from a contract. Produced by
     src/ingestion/clause_segmenter.py (FR-102)."""
 
     contract_id: str
     text: str
-    clause_id: str = field(default_factory=lambda: _new_id("C"))
+    clause_id: str = Field(default_factory=lambda: _new_id("C"))
     clause_type_guess: Optional[str] = None  # e.g. "liability", "termination"
     start_offset: int = 0
     end_offset: int = 0
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_clause(self) -> 'Clause':
         if not self.text or not self.text.strip():
             raise SchemaValidationError(f"{self.clause_id}: clause text is empty")
         if self.end_offset < self.start_offset:
             raise SchemaValidationError(f"{self.clause_id}: invalid offsets")
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class RetrievedEvidence:
+class RetrievedEvidence(BaseModel):
     """One hit from the Qdrant Hybrid Retrieval Engine (FR-103)."""
 
     source: EvidenceSource
     text: str
     similarity_score: float  # combined dense+sparse score, 0..1
-    evidence_id: str = field(default_factory=lambda: _new_id("EV"))
-    metadata: dict = field(default_factory=dict)
+    evidence_id: str = Field(default_factory=lambda: _new_id("EV"))
+    metadata: dict = Field(default_factory=dict)
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_evidence(self) -> 'RetrievedEvidence':
         if not 0.0 <= self.similarity_score <= 1.0:
             raise SchemaValidationError(
                 f"{self.evidence_id}: similarity_score {self.similarity_score} out of range"
             )
         if not self.text.strip():
             raise SchemaValidationError(f"{self.evidence_id}: evidence text is empty")
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["source"] = self.source.value
-        return d
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class AgentFinding:
+class AgentFinding(BaseModel):
     """Structured output of the Legal Intelligence Agent (FR-104).
     This is the object the Deterministic Policy Validator would consume
     in the next sprint slice -- kept here so that hookup is a no-op."""
@@ -120,12 +114,13 @@ class AgentFinding:
     risk_level: RiskLevel
     confidence: float  # 0..1 -- PRD AI Governance: <0.8 forces human review
     rationale: str
-    cited_evidence_ids: list[str] = field(default_factory=list)
-    policy_refs: list[str] = field(default_factory=list)
-    finding_id: str = field(default_factory=lambda: _new_id("F"))
-    generated_at: str = field(default_factory=_utcnow)
+    cited_evidence_ids: List[str] = Field(default_factory=list)
+    policy_refs: List[str] = Field(default_factory=list)
+    finding_id: str = Field(default_factory=lambda: _new_id("F"))
+    generated_at: str = Field(default_factory=_utcnow)
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_finding(self) -> 'AgentFinding':
         if not 0.0 <= self.confidence <= 1.0:
             raise SchemaValidationError(
                 f"{self.finding_id}: confidence {self.confidence} out of range"
@@ -137,15 +132,16 @@ class AgentFinding:
             )
         if not self.rationale.strip():
             raise SchemaValidationError(f"{self.finding_id}: missing rationale")
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["risk_level"] = self.risk_level.value
-        return d
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class RedlineSuggestion:
+class RedlineSuggestion(BaseModel):
     """Structured output of the Redline & Summary Agent (FR-104)."""
 
     clause_id: str
@@ -153,22 +149,26 @@ class RedlineSuggestion:
     suggested_text: str
     rationale: str
     executive_summary: str
-    redline_id: str = field(default_factory=lambda: _new_id("R"))
+    redline_id: str = Field(default_factory=lambda: _new_id("R"))
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_redline(self) -> 'RedlineSuggestion':
         if self.suggested_text.strip() == self.original_text.strip():
             raise SchemaValidationError(
                 f"{self.redline_id}: suggested_text is identical to original"
             )
         if not self.rationale.strip():
             raise SchemaValidationError(f"{self.redline_id}: missing rationale")
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class PolicyRuleResult:
+class PolicyRuleResult(BaseModel):
     """One policy rule that fired during deterministic validation (FR-106).
     Part of the AI Governance explainability requirement: every decision
     carries a reasoning trail of which specific rules fired and why."""
@@ -178,18 +178,12 @@ class PolicyRuleResult:
     action: str  # human-readable summary of what the rule did
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class PolicyDecision:
+class PolicyDecision(BaseModel):
     """Aggregate output of the Deterministic Policy Validator (FR-106).
     Wraps an AgentFinding with the validator's final, auditable determination.
-
-    PRD traceability:
-        FR-106  Deterministic Policy Validation -> this class
-        AI Governance / Explainability         -> rules_fired list
-        AI Governance / Confidence Thresholds  -> requires_human_review
     """
 
     finding_id: str
@@ -198,56 +192,49 @@ class PolicyDecision:
     original_confidence: float
     final_risk_level: RiskLevel
     requires_human_review: bool
-    rules_fired: list[PolicyRuleResult] = field(default_factory=list)
-    decision_id: str = field(default_factory=lambda: _new_id("PD"))
+    rules_fired: List[PolicyRuleResult] = Field(default_factory=list)
+    decision_id: str = Field(default_factory=lambda: _new_id("PD"))
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_decision(self) -> 'PolicyDecision':
         if RiskLevel.ordinal(self.final_risk_level) < RiskLevel.ordinal(self.original_risk_level):
             raise SchemaValidationError(
                 f"{self.decision_id}: final risk level ({self.final_risk_level.value}) "
                 f"cannot be lower than original ({self.original_risk_level.value})"
             )
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        return {
-            "finding_id": self.finding_id,
-            "clause_id": self.clause_id,
-            "original_risk_level": self.original_risk_level.value,
-            "original_confidence": self.original_confidence,
-            "final_risk_level": self.final_risk_level.value,
-            "requires_human_review": self.requires_human_review,
-            "rules_fired": [r.to_dict() for r in self.rules_fired],
-            "decision_id": self.decision_id,
-        }
+        return self.model_dump(mode="json")
 
 
-@dataclass
-class PipelineResult:
+class PipelineResult(BaseModel):
     """Top-level aggregate returned by the Lyzr Orchestrator for one contract."""
 
     contract_id: str
     clauses_processed: int
-    findings: list[AgentFinding] = field(default_factory=list)
-    redlines: list[RedlineSuggestion] = field(default_factory=list)
-    flagged_for_review: list[str] = field(default_factory=list)  # clause_ids, FR-106/FR-107
-    policy_decisions: list[PolicyDecision] = field(default_factory=list)  # FR-106
-    warnings: list[str] = field(default_factory=list)
+    findings: List[AgentFinding] = Field(default_factory=list)
+    redlines: List[RedlineSuggestion] = Field(default_factory=list)
+    flagged_for_review: List[str] = Field(default_factory=list)  # clause_ids, FR-106/FR-107
+    policy_decisions: List[PolicyDecision] = Field(default_factory=list)  # FR-106
+    warnings: List[str] = Field(default_factory=list)
     processing_time_ms: float = 0.0
 
-    def validate(self) -> None:
+    @model_validator(mode='after')
+    def validate_pipeline(self) -> 'PipelineResult':
         if self.clauses_processed < 0:
             raise SchemaValidationError("clauses_processed cannot be negative")
         if len(self.findings) > self.clauses_processed:
             raise SchemaValidationError("more findings than clauses processed")
+        return self
+
+    def validate(self) -> None:
+        pass
 
     def to_dict(self) -> dict:
-        return {
-            "contract_id": self.contract_id,
-            "clauses_processed": self.clauses_processed,
-            "findings": [f.to_dict() for f in self.findings],
-            "redlines": [r.to_dict() for r in self.redlines],
-            "flagged_for_review": self.flagged_for_review,
-            "policy_decisions": [d.to_dict() for d in self.policy_decisions],
-            "warnings": self.warnings,
-            "processing_time_ms": round(self.processing_time_ms, 2),
-        }
+        d = self.model_dump(mode="json")
+        d["processing_time_ms"] = round(self.processing_time_ms, 2)
+        return d

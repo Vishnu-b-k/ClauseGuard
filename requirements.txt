@@ -7,12 +7,9 @@ uvicorn>=0.29
 python-multipart>=0.0.9
 
 # --- Needed for the NEXT sprint slice: swapping mocks for real services ---
-# Uncomment as each integration comes online. Package names for the ADK/
-# Lyzr SDKs are placeholders -- confirm exact package names against
-# current vendor docs before installing.
-#
-# qdrant-client>=1.9        # src/retrieval/qdrant_mock.py -> real client
-# fastembed>=0.2             # dense embeddings for Qdrant hybrid search
-# google-adk                 # src/agents/*.py -> real ADK agent calls
-# lyzr                       # src/orchestrator/lyzr_orchestrator.py -> real Lyzr runtime
-# tenacity>=8.2               # NFR-204: circuit breakers / backoff on LLM calls
+python-dotenv>=1.0.0
+qdrant-client>=1.9          # src/retrieval/qdrant_client.py -> real client
+fastembed>=0.2              # dense embeddings for Qdrant hybrid search
+google-genai>=0.2.0         # Google ADK / Gemini SDK
+tenacity>=8.2               # NFR-204: circuit breakers / backoff on LLM calls
+

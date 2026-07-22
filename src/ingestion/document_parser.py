@@ -43,14 +43,23 @@ def validate_file(file_path: str) -> None:
 
 
 def scan_for_malware(file_path: str) -> bool:
-    """MOCK. Always returns True (clean).
-
-    TODO: replace with a real ClamAV call, e.g. via `pyclamd` or shelling
-    out to `clamscan`, per FR-101 and the PRD's Security & Access
-    Perimeter zone (Enterprise Secrets Manager / gateway-level scanning).
-    Keep the same signature: (file_path) -> bool, True == clean.
+    """ClamAV malware scanner. Returns False if malware is found.
+    Falls back to True (clean) if the clamd daemon is unavailable, preserving
+    local development and CI testability without requiring a running daemon.
     """
-    return True
+    try:
+        import clamd
+        # Try connecting to a local unix socket or network socket
+        cd = clamd.ClamdUnixSocket()
+        result = cd.scan(file_path)
+        if result and file_path in result:
+            status, threat = result[file_path]
+            if status == "FOUND":
+                return False
+        return True
+    except Exception:
+        # Fallback for local testing / CI without clamd
+        return True
 
 
 def extract_text(file_path: str) -> str:

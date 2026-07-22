@@ -6,6 +6,7 @@ so this runs with just `python3 -m unittest discover`.
 from __future__ import annotations
 
 import unittest
+import asyncio
 from pathlib import Path
 
 from src.agents.legal_intelligence_agent import LegalIntelligenceAgent
@@ -47,6 +48,12 @@ class TestRetrieval(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+from unittest.mock import patch
+
+@patch("src.config.MOCK_MODE", True)
+@patch("src.retrieval.__init__.MOCK_MODE", True)
+@patch("src.agents.legal_intelligence_agent.MOCK_MODE", True)
+@patch("src.agents.redline_summary_agent.MOCK_MODE", True)
 class TestLegalIntelligenceAgent(unittest.TestCase):
     def setUp(self):
         self.agent = LegalIntelligenceAgent()
@@ -92,6 +99,10 @@ class TestLegalIntelligenceAgent(unittest.TestCase):
         self.assertEqual(finding.risk_level, RiskLevel.HIGH)
 
 
+@patch("src.config.MOCK_MODE", True)
+@patch("src.retrieval.__init__.MOCK_MODE", True)
+@patch("src.agents.legal_intelligence_agent.MOCK_MODE", True)
+@patch("src.agents.redline_summary_agent.MOCK_MODE", True)
 class TestOrchestratorEndToEnd(unittest.TestCase):
     def setUp(self):
         self.orchestrator = LyzrWorkflowOrchestrator(
@@ -100,7 +111,7 @@ class TestOrchestratorEndToEnd(unittest.TestCase):
 
     def test_full_pipeline_runs_on_sample_contract(self):
         text = ingest(str(SAMPLE_CONTRACT))
-        result = self.orchestrator.run(text, contract_id="sample-contract")
+        result = asyncio.run(self.orchestrator.run(text, contract_id="sample-contract"))
 
         self.assertGreater(result.clauses_processed, 0)
         self.assertEqual(len(result.findings), result.clauses_processed)
@@ -115,25 +126,25 @@ class TestOrchestratorEndToEnd(unittest.TestCase):
         # source text) because clause_id is randomly generated per
         # segmentation call and isn't meant to be stable across calls.
         text = ingest(str(SAMPLE_CONTRACT))
-        result = self.orchestrator.run(text, contract_id="sample-contract")
+        result = asyncio.run(self.orchestrator.run(text, contract_id="sample-contract"))
 
         risk_levels = [f.risk_level for f in result.findings]
         self.assertIn(RiskLevel.CRITICAL, risk_levels)
 
     def test_high_risk_clauses_get_redlines(self):
         text = ingest(str(SAMPLE_CONTRACT))
-        result = self.orchestrator.run(text, contract_id="sample-contract")
+        result = asyncio.run(self.orchestrator.run(text, contract_id="sample-contract"))
         self.assertGreater(len(result.redlines), 0, "expected at least one redline on the sample contract")
 
     def test_low_confidence_or_high_risk_clauses_are_flagged_for_review(self):
         text = ingest(str(SAMPLE_CONTRACT))
-        result = self.orchestrator.run(text, contract_id="sample-contract")
+        result = asyncio.run(self.orchestrator.run(text, contract_id="sample-contract"))
         self.assertGreater(len(result.flagged_for_review), 0)
 
     def test_result_serializes_to_json_safely(self):
         import json
         text = ingest(str(SAMPLE_CONTRACT))
-        result = self.orchestrator.run(text, contract_id="sample-contract")
+        result = asyncio.run(self.orchestrator.run(text, contract_id="sample-contract"))
         serialized = json.dumps(result.to_dict())
         self.assertIn("sample-contract", serialized)
         self.assertIn("policy_decisions", serialized)

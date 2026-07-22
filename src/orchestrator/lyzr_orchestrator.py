@@ -18,9 +18,12 @@ are now handled by src/rules/deterministic_policy_validator.py, not inline
 in this orchestrator.
 """
 
-from __future__ import annotations
-
+import asyncio
 import time
+
+from opentelemetry import trace
+
+tracer = trace.get_tracer(__name__)
 
 from src.agents.legal_intelligence_agent import LegalIntelligenceAgent
 from src.agents.redline_summary_agent import RedlineSummaryAgent
@@ -70,43 +73,70 @@ class LyzrWorkflowOrchestrator:
         )
         return None
 
-    def run(self, contract_text: str, contract_id: str) -> PipelineResult:
-        start = time.perf_counter()
-        warnings: list[str] = []
+    async def run(self, contract_text: str, contract_id: str) -> PipelineResult:
+        with tracer.start_as_current_span("orchestrator.run") as span:
+            span.set_attribute("contract_id", contract_id)
+            start = time.perf_counter()
+            warnings: list[str] = []
 
-        clauses = segment_into_clauses(contract_text, contract_id)
+            clauses = segment_into_clauses(contract_text, contract_id)
+            span.set_attribute("clauses.count", len(clauses))
 
-        findings: list[AgentFinding] = []
-        policy_decisions = []
-        redlines = []
-        flagged_for_review: list[str] = []
+            findings: list[AgentFinding] = []
+            policy_decisions = []
+            redlines = []
+            flagged_for_review: list[str] = []
 
-        for clause in clauses:
-            evidence = self.retrieval_client.retrieve(clause.text, top_k=self.retrieval_top_k)
+            queue = asyncio.Queue()
+            for clause in clauses:
+                await queue.put(clause)
 
-            finding = self._analyze_with_validation(clause, evidence, warnings)
-            if finding is None:
-                flagged_for_review.append(clause.clause_id)
-                continue
+            async def worker():
+                while True:
+                    try:
+                        clause = queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    
+                    with tracer.start_as_current_span("orchestrator.process_clause") as clause_span:
+                        clause_span.set_attribute("clause_id", clause.clause_id)
+                        def _do_work():
+                            evidence = self.retrieval_client.retrieve(clause.text, top_k=self.retrieval_top_k)
+                            clause_span.set_attribute("evidence.count", len(evidence))
+                            finding = self._analyze_with_validation(clause, evidence, warnings)
+                            if finding is None:
+                                return None, None, None
+                            
+                            decision = self.policy_validator.validate(finding)
+                            clause_span.set_attribute("risk_level", finding.risk_level.value)
+                            clause_span.set_attribute("final_risk_level", decision.final_risk_level.value)
+                            
+                            redline = None
+                            if decision.final_risk_level in _REDLINE_TRIGGER_LEVELS:
+                                redline = self.redline_agent.generate(clause, finding)
+                                clause_span.set_attribute("redline.generated", True)
+                            return finding, decision, redline
 
-            findings.append(finding)
+                        finding, decision, redline = await asyncio.to_thread(_do_work)
 
-            # FR-106: Deterministic Policy Validation -- run the finding
-            # through hardcoded policy rules before any review/redline
-            # decision.  The validator (not this orchestrator) now owns
-            # all policy logic: confidence thresholds, risk-level gates,
-            # and policy-ref escalation.
-            decision = self.policy_validator.validate(finding)
-            policy_decisions.append(decision)
+                        if finding is None:
+                            flagged_for_review.append(clause.clause_id)
+                        else:
+                            findings.append(finding)
+                            policy_decisions.append(decision)
+                            if decision.requires_human_review:
+                                flagged_for_review.append(clause.clause_id)
+                            if redline:
+                                redlines.append(redline)
+                    
+                    queue.task_done()
 
-            if decision.requires_human_review:
-                flagged_for_review.append(clause.clause_id)
+            # Use 5 concurrent workers for I/O bound LLM calls
+            workers = [asyncio.create_task(worker()) for _ in range(5)]
+            await asyncio.gather(*workers)
 
-            if decision.final_risk_level in _REDLINE_TRIGGER_LEVELS:
-                redline = self.redline_agent.generate(clause, finding)
-                redlines.append(redline)
-
-        elapsed_ms = (time.perf_counter() - start) * 1000
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            span.set_attribute("processing_time_ms", elapsed_ms)
 
         result = PipelineResult(
             contract_id=contract_id,

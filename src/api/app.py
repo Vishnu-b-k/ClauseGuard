@@ -1,129 +1,153 @@
-"""FastAPI application for the Legal AI Pipeline."""
+"""
+FastAPI application for the Legal AI Pipeline (Slice 3 & Phase 4).
+Upgraded to async execution (`async def`) with correlation IDs, structured logging, and threadpool delegation.
+"""
 
-from __future__ import annotations
-
+import contextvars
 import logging
 import os
 import tempfile
 import uuid
-from pathlib import Path
+from typing import Callable
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+import tenacity
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.models import PipelineResultResponse
-from src.bootstrap import create_orchestrator
-from src.config import AppSettings, load_settings
+from src.models.schemas import PipelineResult as PipelineResultResponse
+from src.config import LOG_LEVEL
 from src.ingestion.document_parser import (
     ALLOWED_EXTENSIONS,
+    MAX_FILE_SIZE_BYTES,
     IngestionValidationError,
     ingest,
 )
+from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
+from src.retrieval import get_retrieval_client
 
-logger = logging.getLogger(__name__)
-
-
-def _validate_upload_name(file: UploadFile) -> str:
-    filename = Path(file.filename or "").name
-    suffix = Path(filename).suffix.lower()
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Unsupported file type '{suffix}'. "
-                f"Allowed: {sorted(ALLOWED_EXTENSIONS)}"
-            ),
-        )
-    return filename
+# --- Context and Logging Setup ---
+correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "correlation_id", default="-"
+)
 
 
-def _persist_upload(file: UploadFile, settings: AppSettings) -> str:
-    """Write an upload in bounded chunks and return its temporary path."""
-    filename = _validate_upload_name(file)
-    suffix = Path(filename).suffix.lower()
-    descriptor, temp_path = tempfile.mkstemp(suffix=suffix)
-    bytes_written = 0
+class CorrelationIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.correlation_id = correlation_id_var.get()
+        return True
 
+
+# Configure structured logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] [%(correlation_id)s] %(message)s",
+    force=True,
+)
+logger = logging.getLogger()
+logger.addFilter(CorrelationIdFilter())
+for handler in logger.handlers:
+    handler.addFilter(CorrelationIdFilter())
+
+app = FastAPI(title="Legal AI Contract Compliance API", version="1.0.0")
+
+# Enable permissive CORS for local development.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next: Callable):
+    corr_id = request.headers.get("X-Correlation-ID") or request.headers.get("x-correlation-id")
+    if not corr_id:
+        corr_id = str(uuid.uuid4())
+    token = correlation_id_var.set(corr_id)
     try:
-        with os.fdopen(descriptor, "wb") as destination:
-            while chunk := file.file.read(settings.upload_chunk_size_bytes):
-                bytes_written += len(chunk)
-                if bytes_written > settings.max_upload_size_bytes:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=(
-                            "File exceeds the maximum upload size "
-                            f"of {settings.max_upload_size_bytes} bytes"
-                        ),
-                    )
-                destination.write(chunk)
-        return temp_path
-    except Exception:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        raise
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = corr_id
+        return response
+    finally:
+        correlation_id_var.reset(token)
 
 
-def create_app(settings: AppSettings | None = None) -> FastAPI:
-    """Create a configured API instance for production or test use."""
-    runtime_settings = settings or load_settings()
-    app = FastAPI(
-        title="Legal AI Contract Compliance API",
-        version="1.1.0",
-        docs_url="/docs" if runtime_settings.enable_docs else None,
-        redoc_url="/redoc" if runtime_settings.enable_docs else None,
-        openapi_url="/openapi.json" if runtime_settings.enable_docs else None,
-    )
-    app.state.settings = runtime_settings
-    app.state.orchestrator = create_orchestrator(runtime_settings)
+def get_orchestrator() -> LyzrWorkflowOrchestrator:
+    """Dynamically initializes orchestrator with get_retrieval_client so MOCK_MODE changes take effect."""
+    retrieval_client = get_retrieval_client()
+    return LyzrWorkflowOrchestrator(retrieval_client=retrieval_client)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(runtime_settings.allowed_origins),
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
-    )
 
-    @app.get("/api/v1/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+# Initialize default module-level dependencies for compatibility with existing references
+_retrieval_client = get_retrieval_client()
+_orchestrator = LyzrWorkflowOrchestrator(retrieval_client=_retrieval_client)
 
-    @app.get("/api/v1/ready")
-    def readiness() -> dict[str, str]:
-        return {"status": "ready", "environment": runtime_settings.environment}
 
-    @app.post(
-        "/api/v1/contracts/analyze",
-        response_model=PipelineResultResponse,
-    )
-    def analyze_contract(file: UploadFile = File(...)) -> dict:
-        """Validate, ingest, and analyze an uploaded contract."""
-        temp_path = ""
-        try:
-            temp_path = _persist_upload(file, runtime_settings)
-            text = ingest(temp_path)
-            contract_id = Path(file.filename or str(uuid.uuid4())).name
-            result = app.state.orchestrator.run(text, contract_id=contract_id)
-            return result.to_dict()
-        except IngestionValidationError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except HTTPException:
-            raise
-        except Exception:
-            logger.exception("Unexpected error analyzing contract")
+@app.get("/api/v1/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/api/v1/contracts/analyze", response_model=PipelineResultResponse)
+async def analyze_contract(file: UploadFile = File(...)):
+    """
+    Analyzes an uploaded contract file asynchronously without blocking the event loop.
+    Delegates CPU/network-bound agent and retrieval logic to a threadpool.
+    """
+    temp_path = ""
+    try:
+        suffix = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+        if suffix not in ALLOWED_EXTENSIONS:
             raise HTTPException(
-                status_code=500,
-                detail="An internal server error occurred.",
-            ) from None
-        finally:
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except OSError:
-                    logger.warning("Could not remove temporary upload: %s", temp_path)
+                status_code=400,
+                detail=f"Unsupported file type '{suffix}'. Unsupported file format. Must be .pdf, .docx, or .txt.",
+            )
 
-    return app
+        if getattr(file, "size", None) is not None and file.size > MAX_FILE_SIZE_BYTES:  # type: ignore[operator]
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 25MB.")
 
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 25MB.")
 
-app = create_app()
+        fd, temp_path = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(content)
+
+        try:
+            text = ingest(temp_path)
+        except IngestionValidationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        contract_id = file.filename or str(uuid.uuid4())
+        orchestrator = get_orchestrator()
+
+        # Run async orchestrator pipeline
+        result = await orchestrator.run(text, contract_id=contract_id)
+
+        return result.to_dict()
+
+    except HTTPException:
+        raise
+    except (TimeoutError, tenacity.RetryError) as e:
+        logger.error(f"Timeout during contract analysis: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="AI reasoning or vector store timed out. Please try again.",
+        )
+    except Exception as e:
+        corr_id = correlation_id_var.get()
+        logger.error(
+            f"Unexpected error analyzing contract [correlation_id={corr_id}]: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass

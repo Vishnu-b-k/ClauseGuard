@@ -10,18 +10,19 @@ from __future__ import annotations
 from src.config import AppSettings
 from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
 from src.retrieval.qdrant_mock import MockQdrantRetrievalClient
+from src.retrieval.qdrant_real import RealQdrantRetrievalClient
 
 
 def create_orchestrator(settings: AppSettings) -> LyzrWorkflowOrchestrator:
     """Create the contract-analysis workflow for the configured environment."""
     if not settings.mock_mode:
-        raise RuntimeError(
-            "Real service integrations are not configured yet. "
-            "Set MOCK_MODE=true only for local development, or complete the "
-            "Qdrant and ADK integration before deploying this environment."
-        )
+        # Use real retrieval client in production
+        retrieval_client = RealQdrantRetrievalClient()
+    else:
+        # Use mock retrieval client in development/testing
+        retrieval_client = MockQdrantRetrievalClient()
 
     return LyzrWorkflowOrchestrator(
-        retrieval_client=MockQdrantRetrievalClient(),
+        retrieval_client=retrieval_client,
         retrieval_top_k=settings.retrieval_top_k,
     )
