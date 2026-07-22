@@ -49,38 +49,39 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: #F1EFE8;
+  --foreground: #2C2C2A;
+  --card: #FFFFFF;
+  --card-foreground: #2C2C2A;
+  --popover: #FFFFFF;
+  --popover-foreground: #2C2C2A;
+  --primary: #2C2C2A;
+  --primary-foreground: #FFFFFF;
+  --secondary: #EAE8E1;
+  --secondary-foreground: #2C2C2A;
+  --muted: #EAE8E1;
+  --muted-foreground: #5F5E5A;
+  --accent: #EAE8E1;
+  --accent-foreground: #2C2C2A;
+  --destructive: #E24B4A;
+  --destructive-foreground: #FFFFFF;
+  --border: #888780;
+  --input: #888780;
+  --ring: #2C2C2A;
+  --chart-1: #2C2C2A;
+  --chart-2: #5F5E5A;
+  --chart-3: #888780;
+  --chart-4: #E24B4A;
+  --chart-5: #1D9E75;
+  --radius: 0.375rem;
+  --sidebar: #F1EFE8;
+  --sidebar-foreground: #2C2C2A;
+  --sidebar-primary: #2C2C2A;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #EAE8E1;
+  --sidebar-accent-foreground: #2C2C2A;
+  --sidebar-border: #888780;
+  --sidebar-ring: #2C2C2A;
 }
 
 .dark {
