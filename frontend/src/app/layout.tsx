@@ -7,8 +7,8 @@ const cormorant = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "500"
 const jetbrainsMono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
 
 export const metadata: Metadata = {
-  title: "Legal AI Compliance Platform",
-  description: "Enterprise contract review and intelligence",
+  title: "ClauseGuard — Legal Intelligence Platform",
+  description: "AI-powered contract investigation. Every clause interrogated. Every risk exposed. Every liability neutralized.",
 };
 
 export default function RootLayout({
