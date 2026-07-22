@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export PORT=${PORT:-8080}
+
 # Start the Celery worker in the background
 echo "Starting Celery Background Worker..."
 celery -A src.worker.celery_app worker --loglevel=info &

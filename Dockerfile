@@ -12,9 +12,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src ./src
+COPY start.sh ./
 
 USER app
 
 EXPOSE 8080
 
-CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["bash", "start.sh"]
