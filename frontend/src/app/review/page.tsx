@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PipelineResultResponse, PolicyDecisionResponse, RedlineSuggestionResponse } from "@/types";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, ShieldAlert, AlertTriangle, CheckCircle, ArrowLeft, Download, FileText, FileWarning, Eye, PenTool } from "lucide-react";
+import { Shield, ShieldAlert, AlertTriangle, CheckCircle, ArrowLeft, Download, FileText, FileWarning, Eye, PenTool, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,26 +36,45 @@ export default function ReviewWorkspace() {
   const router = useRouter();
   const [data, setData] = useState<PipelineResultResponse | null>(null);
   const [selectedClauseId, setSelectedClauseId] = useState<string | null>(null);
+  const [resolvedClauses, setResolvedClauses] = useState<Record<string, 'approved' | 'rejected'>>({});
+  const [exporting, setExporting] = useState(false);
 
   const handleExport = () => {
     if (!data) return;
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `compliance_report_${data.contract_id}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setExporting(true);
+    setTimeout(() => {
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance_report_${data.contract_id}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setExporting(false);
+    }, 500);
+  };
+
+  const advanceToNext = (currentId: string) => {
+    if (!data) return;
+    const allIds = data.policy_decisions.map(pd => pd.clause_id);
+    const currentIndex = allIds.indexOf(currentId);
+    if (currentIndex >= 0 && currentIndex < allIds.length - 1) {
+      setSelectedClauseId(allIds[currentIndex + 1]);
+    }
   };
 
   const handleApprove = () => {
-    alert("Clause Approved & Saved to database!");
+    if (!selectedClauseId) return;
+    setResolvedClauses(prev => ({ ...prev, [selectedClauseId]: 'approved' }));
+    advanceToNext(selectedClauseId);
   };
 
   const handleReject = () => {
-    alert("AI Suggestion Rejected.");
+    if (!selectedClauseId) return;
+    setResolvedClauses(prev => ({ ...prev, [selectedClauseId]: 'rejected' }));
+    advanceToNext(selectedClauseId);
   };
 
   useEffect(() => {
@@ -104,9 +123,9 @@ export default function ReviewWorkspace() {
           <Badge variant="destructive" className="px-3 py-1">
             {data.flagged_for_review.length} Flagged
           </Badge>
-          <Button variant="outline" size="sm" onClick={handleExport}>
+          <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
             <Download className="w-4 h-4 mr-2" />
-            Export Report
+            {exporting ? "Exporting..." : "Export Report"}
           </Button>
         </div>
       </header>
@@ -129,13 +148,19 @@ export default function ReviewWorkspace() {
                 >
                   <CardContent className="p-4">
                     <div className="flex justify-between items-start mb-2">
-                      <span className="text-sm font-medium text-muted-foreground">{decision.clause_id}</span>
+                      <div className="flex items-center gap-2">
+                        {resolvedClauses[decision.clause_id] === 'approved' && <CheckCircle className="w-4 h-4 text-green-500" />}
+                        {resolvedClauses[decision.clause_id] === 'rejected' && <XCircle className="w-4 h-4 text-red-500" />}
+                        <span className={`text-sm font-medium ${resolvedClauses[decision.clause_id] ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
+                          {decision.clause_id}
+                        </span>
+                      </div>
                       <Badge variant="outline" className={getRiskColor(decision.final_risk_level)}>
                         {getRiskIcon(decision.final_risk_level)}
                         {decision.final_risk_level.toUpperCase()}
                       </Badge>
                     </div>
-                    {decision.requires_human_review && (
+                    {decision.requires_human_review && !resolvedClauses[decision.clause_id] && (
                       <Badge variant="destructive" className="mt-2 text-[10px]">REQUIRES REVIEW</Badge>
                     )}
                   </CardContent>
@@ -303,9 +328,15 @@ export default function ReviewWorkspace() {
                   </Tabs>
                 </ScrollArea>
                 
-                <div className="p-4 border-t border-border bg-card flex justify-end gap-4">
-                  <Button variant="outline" onClick={handleReject}>Reject AI Suggestion</Button>
-                  <Button onClick={handleApprove}>Approve & Save</Button>
+                <div className="p-4 border-t border-border bg-card flex justify-between items-center gap-4">
+                  <div className="text-sm font-medium">
+                    {resolvedClauses[selectedClauseId] === 'approved' && <span className="text-green-500 flex items-center"><CheckCircle className="w-4 h-4 mr-2"/> Approved</span>}
+                    {resolvedClauses[selectedClauseId] === 'rejected' && <span className="text-red-500 flex items-center"><XCircle className="w-4 h-4 mr-2"/> Rejected</span>}
+                  </div>
+                  <div className="flex gap-4">
+                    <Button variant="outline" onClick={handleReject} disabled={!!resolvedClauses[selectedClauseId]}>Reject AI Suggestion</Button>
+                    <Button onClick={handleApprove} disabled={!!resolvedClauses[selectedClauseId]}>Approve & Save</Button>
+                  </div>
                 </div>
               </motion.div>
             )}
