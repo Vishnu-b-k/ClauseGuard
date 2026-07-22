@@ -10,6 +10,12 @@ client = TestClient(app)
 SAMPLE_CONTRACT = Path(__file__).parent.parent / "sample_data" / "sample_contract.txt"
 
 
+from unittest.mock import patch
+
+@patch("src.config.MOCK_MODE", True)
+@patch("src.retrieval.__init__.MOCK_MODE", True)
+@patch("src.agents.legal_intelligence_agent.MOCK_MODE", True)
+@patch("src.agents.redline_summary_agent.MOCK_MODE", True)
 class TestAPI(unittest.TestCase):
     def test_health(self):
         response = client.get("/api/v1/health")

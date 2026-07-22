@@ -47,6 +47,12 @@ class TestRetrieval(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+from unittest.mock import patch
+
+@patch("src.config.MOCK_MODE", True)
+@patch("src.retrieval.__init__.MOCK_MODE", True)
+@patch("src.agents.legal_intelligence_agent.MOCK_MODE", True)
+@patch("src.agents.redline_summary_agent.MOCK_MODE", True)
 class TestLegalIntelligenceAgent(unittest.TestCase):
     def setUp(self):
         self.agent = LegalIntelligenceAgent()
@@ -92,6 +98,10 @@ class TestLegalIntelligenceAgent(unittest.TestCase):
         self.assertEqual(finding.risk_level, RiskLevel.HIGH)
 
 
+@patch("src.config.MOCK_MODE", True)
+@patch("src.retrieval.__init__.MOCK_MODE", True)
+@patch("src.agents.legal_intelligence_agent.MOCK_MODE", True)
+@patch("src.agents.redline_summary_agent.MOCK_MODE", True)
 class TestOrchestratorEndToEnd(unittest.TestCase):
     def setUp(self):
         self.orchestrator = LyzrWorkflowOrchestrator(
