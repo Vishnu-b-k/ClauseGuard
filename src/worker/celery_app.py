@@ -11,7 +11,7 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672//")
 celery_app = Celery(
     "contract_worker",
     broker=RABBITMQ_URL,
-    backend="db+sqlite:///celery_results.sqlite"
+    backend=os.getenv("CELERY_RESULT_BACKEND", "db+sqlite:///celery_results.sqlite")
 )
 
 celery_app.conf.update(
