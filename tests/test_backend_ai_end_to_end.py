@@ -1,9 +1,10 @@
 """
-End-to-End verification test suite for the Legal AI backend (Phase 5).
+End-toEnd verification test suite for the Legal AI backend (Phase 5).
 """
 
 import json
 import unittest
+import asyncio
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,7 +29,7 @@ class TestBackendAIEndToEnd(unittest.TestCase):
             retrieval_client = get_retrieval_client()
             orchestrator = LyzrWorkflowOrchestrator(retrieval_client=retrieval_client)
             
-            result = orchestrator.run(text, contract_id="E2E-MOCK")
+            result = asyncio.run(orchestrator.run(text, contract_id="E2E-MOCK"))
             
             # Zero schema validation errors and non-empty outputs
             self.assertGreater(result.clauses_processed, 0)
@@ -80,7 +81,7 @@ class TestBackendAIEndToEnd(unittest.TestCase):
             retrieval_client = get_retrieval_client()
             orchestrator = LyzrWorkflowOrchestrator(retrieval_client=retrieval_client)
             
-            result = orchestrator.run(text, contract_id="E2E-REAL")
+            result = asyncio.run(orchestrator.run(text, contract_id="E2E-REAL"))
             
             self.assertGreater(result.clauses_processed, 0)
             self.assertGreater(len(result.flagged_for_review), 0)

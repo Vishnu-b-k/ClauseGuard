@@ -15,7 +15,7 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.models import PipelineResultResponse
+from src.models.schemas import PipelineResult as PipelineResultResponse
 from src.config import LOG_LEVEL
 from src.ingestion.document_parser import (
     ALLOWED_EXTENSIONS,
@@ -125,8 +125,8 @@ async def analyze_contract(file: UploadFile = File(...)):
         contract_id = file.filename or str(uuid.uuid4())
         orchestrator = get_orchestrator()
 
-        # Run CPU/network-bound orchestrator pipeline in threadpool
-        result = await run_in_threadpool(orchestrator.run, text, contract_id=contract_id)
+        # Run async orchestrator pipeline
+        result = await orchestrator.run(text, contract_id=contract_id)
 
         return result.to_dict()
 
