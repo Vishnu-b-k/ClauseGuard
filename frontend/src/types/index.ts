@@ -32,6 +32,15 @@ export interface PolicyDecisionResponse {
   decision_id: string;
 }
 
+export interface Clause {
+  contract_id: string;
+  text: string;
+  clause_id: string;
+  clause_type_guess?: string;
+  start_offset: number;
+  end_offset: number;
+}
+
 export interface PipelineResultResponse {
   contract_id: string;
   clauses_processed: number;
@@ -40,5 +49,6 @@ export interface PipelineResultResponse {
   flagged_for_review: string[];
   policy_decisions: PolicyDecisionResponse[];
   warnings: string[];
+  all_clauses: Clause[];
   processing_time_ms: number;
 }

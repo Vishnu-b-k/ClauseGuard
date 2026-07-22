@@ -146,6 +146,7 @@ class LyzrWorkflowOrchestrator:
             flagged_for_review=flagged_for_review,
             policy_decisions=policy_decisions,
             warnings=warnings,
+            all_clauses=clauses,
             processing_time_ms=elapsed_ms,
         )
         result.validate()

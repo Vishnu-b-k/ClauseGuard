@@ -221,6 +221,7 @@ class PipelineResult(BaseModel):
     flagged_for_review: List[str] = Field(default_factory=list)  # clause_ids, FR-106/FR-107
     policy_decisions: List[PolicyDecision] = Field(default_factory=list)  # FR-106
     warnings: List[str] = Field(default_factory=list)
+    all_clauses: List[Clause] = Field(default_factory=list)
     processing_time_ms: float = 0.0
 
     @model_validator(mode='after')
