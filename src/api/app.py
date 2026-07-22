@@ -155,7 +155,7 @@ async def analyze_contract(file: UploadFile = File(...)):
             f"Unexpected error analyzing contract [correlation_id={corr_id}]: {e}",
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+        raise HTTPException(status_code=500, detail=f"An internal server error occurred: {str(e)}")
     finally:
         if temp_path and os.path.exists(temp_path):
             try:
