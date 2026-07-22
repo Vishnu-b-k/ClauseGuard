@@ -4,7 +4,7 @@ export PORT=${PORT:-8080}
 
 # Start the Celery worker in the background
 echo "Starting Celery Background Worker..."
-celery -A src.worker.celery_app worker --loglevel=info &
+celery -A src.worker.celery_app worker --loglevel=info -P solo &
 
 # Start the FastAPI Web Service in the foreground
 echo "Starting FastAPI Web Service..."
