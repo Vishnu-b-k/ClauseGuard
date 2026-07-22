@@ -13,3 +13,8 @@ fastembed>=0.2              # dense embeddings for Qdrant hybrid search
 google-genai>=0.2.0         # Google ADK / Gemini SDK
 tenacity>=8.2               # NFR-204: circuit breakers / backoff on LLM calls
 
+# --- Phase A: Infrastructure & Persistence ---
+boto3>=1.34.0               # S3/MinIO Object Storage
+sqlalchemy>=2.0.0           # ORM for PostgreSQL metadata
+psycopg2-binary>=2.9.0      # PostgreSQL adapter
+asyncpg>=0.29.0             # Async PostgreSQL adapter

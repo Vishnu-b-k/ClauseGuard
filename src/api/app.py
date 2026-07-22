@@ -25,6 +25,7 @@ from src.ingestion.document_parser import (
 )
 from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
 from src.retrieval import get_retrieval_client
+from src.storage.s3_client import S3StorageClient
 
 # --- Context and Logging Setup ---
 correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
@@ -84,6 +85,7 @@ def get_orchestrator() -> LyzrWorkflowOrchestrator:
 # Initialize default module-level dependencies for compatibility with existing references
 _retrieval_client = get_retrieval_client()
 _orchestrator = LyzrWorkflowOrchestrator(retrieval_client=_retrieval_client)
+_s3_client = S3StorageClient()
 
 
 @app.get("/api/v1/health")
@@ -123,6 +125,15 @@ async def analyze_contract(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail=str(e))
 
         contract_id = file.filename or str(uuid.uuid4())
+        s3_key = f"contracts/{contract_id}-{uuid.uuid4()}{suffix}"
+
+        # Upload original document to Contract Object Storage
+        try:
+            _s3_client.upload_file(content, s3_key)
+            logger.info(f"Uploaded contract to S3 with key: {s3_key}")
+        except Exception as e:
+            logger.warning(f"Failed to upload to S3 (continuing analysis): {e}")
+
         orchestrator = get_orchestrator()
 
         # Run async orchestrator pipeline
