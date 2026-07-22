@@ -21,6 +21,7 @@ asyncpg>=0.29.0             # Async PostgreSQL adapter
 
 # --- Phase B: Asynchronous Messaging ---
 celery>=5.3.0               # Message queue consumer/producer
+redis>=5.0.0                # Celery Result Backend on Render
 
 # --- Phase C: Observability ---
 opentelemetry-api>=1.20.0
