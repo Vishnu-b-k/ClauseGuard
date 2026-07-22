@@ -11,7 +11,7 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672//")
 celery_app = Celery(
     "contract_worker",
     broker=RABBITMQ_URL,
-    backend="rpc://"
+    backend="db+sqlite:///celery_results.sqlite"
 )
 
 celery_app.conf.update(
@@ -20,6 +20,8 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    worker_enable_remote_control=False,
+    worker_send_task_events=False,
 )
 
 logger = logging.getLogger(__name__)

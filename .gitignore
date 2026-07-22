@@ -24,3 +24,4 @@ Thumbs.db
 Downloads/
 
 tmp/
+celery_results.sqlite
