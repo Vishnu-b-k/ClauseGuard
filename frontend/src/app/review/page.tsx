@@ -138,7 +138,7 @@ export default function ReviewWorkspace() {
           <div className="p-4 border-b border-border bg-card">
             <h2 className="font-semibold text-lg">Analyzed Clauses</h2>
           </div>
-          <ScrollArea className="flex-1">
+          <div className="flex-1 overflow-y-auto">
             <div className="p-4 flex flex-col gap-3">
               {data.policy_decisions.map((decision) => (
                 <Card 
@@ -167,7 +167,7 @@ export default function ReviewWorkspace() {
                 </Card>
               ))}
             </div>
-          </ScrollArea>
+          </div>
         </aside>
 
         {/* Right Panel: Clause Details */}
@@ -206,7 +206,7 @@ export default function ReviewWorkspace() {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1 p-6">
+                <div className="flex-1 overflow-y-auto p-6">
                   <Tabs defaultValue="review" className="w-full">
                     <TabsList className="mb-6 bg-muted/50 border border-border">
                       <TabsTrigger value="review" className="data-[state=active]:bg-background"><Eye className="w-4 h-4 mr-2" /> Evaluation</TabsTrigger>
@@ -326,7 +326,7 @@ export default function ReviewWorkspace() {
                       )}
                     </TabsContent>
                   </Tabs>
-                </ScrollArea>
+                </div>
                 
                 <div className="p-4 border-t border-border bg-card flex justify-between items-center gap-4">
                   <div className="text-sm font-medium">
