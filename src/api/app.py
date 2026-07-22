@@ -1,26 +1,57 @@
 """
-FastAPI application for the Legal AI Pipeline (Slice 3).
+FastAPI application for the Legal AI Pipeline (Slice 3 & Phase 4).
+Upgraded to async execution (`async def`) with correlation IDs, structured logging, and threadpool delegation.
 """
 
-import os
-import uuid
-import tempfile
+import contextvars
 import logging
+import os
+import tempfile
+import uuid
+from typing import Callable
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import tenacity
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from src.ingestion.document_parser import ingest, IngestionValidationError
-from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
-from src.retrieval.qdrant_mock import MockQdrantRetrievalClient
 from src.api.models import PipelineResultResponse
+from src.config import LOG_LEVEL
+from src.ingestion.document_parser import (
+    ALLOWED_EXTENSIONS,
+    MAX_FILE_SIZE_BYTES,
+    IngestionValidationError,
+    ingest,
+)
+from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
+from src.retrieval import get_retrieval_client
+
+# --- Context and Logging Setup ---
+correlation_id_var: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "correlation_id", default="-"
+)
+
+
+class CorrelationIdFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.correlation_id = correlation_id_var.get()
+        return True
+
+
+# Configure structured logging
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] [%(correlation_id)s] %(message)s",
+    force=True,
+)
+logger = logging.getLogger()
+logger.addFilter(CorrelationIdFilter())
+for handler in logger.handlers:
+    handler.addFilter(CorrelationIdFilter())
 
 app = FastAPI(title="Legal AI Contract Compliance API", version="1.0.0")
 
 # Enable permissive CORS for local development.
-# TODO: Add real origin allowlist before production matching the zero-trust framing.
-# Also, OAuth2/JWT/TLS and rate limiting should be placed at the Enterprise API Gateway layer.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -29,8 +60,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize the mock dependencies once for the app lifecycle
-_retrieval_client = MockQdrantRetrievalClient()
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next: Callable):
+    corr_id = request.headers.get("X-Correlation-ID") or request.headers.get("x-correlation-id")
+    if not corr_id:
+        corr_id = str(uuid.uuid4())
+    token = correlation_id_var.set(corr_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Correlation-ID"] = corr_id
+        return response
+    finally:
+        correlation_id_var.reset(token)
+
+
+def get_orchestrator() -> LyzrWorkflowOrchestrator:
+    """Dynamically initializes orchestrator with get_retrieval_client so MOCK_MODE changes take effect."""
+    retrieval_client = get_retrieval_client()
+    return LyzrWorkflowOrchestrator(retrieval_client=retrieval_client)
+
+
+# Initialize default module-level dependencies for compatibility with existing references
+_retrieval_client = get_retrieval_client()
 _orchestrator = LyzrWorkflowOrchestrator(retrieval_client=_retrieval_client)
 
 
@@ -40,45 +92,60 @@ def health():
 
 
 @app.post("/api/v1/contracts/analyze", response_model=PipelineResultResponse)
-def analyze_contract(file: UploadFile = File(...)):
+async def analyze_contract(file: UploadFile = File(...)):
     """
-    Analyzes an uploaded contract file.
-    
-    TODO: Move to `async def` once real ADK/LLM calls (which are I/O-bound) are wired in.
-    Currently synchronous as it runs CPU-bound mock logic.
+    Analyzes an uploaded contract file asynchronously without blocking the event loop.
+    Delegates CPU/network-bound agent and retrieval logic to a threadpool.
     """
     temp_path = ""
     try:
-        # Write the uploaded file to a temporary path, maintaining the extension
-        suffix = os.path.splitext(file.filename)[1] if file.filename else ""
+        suffix = os.path.splitext(file.filename)[1].lower() if file.filename else ""
+        if suffix not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{suffix}'. Unsupported file format. Must be .pdf, .docx, or .txt.",
+            )
+
+        if getattr(file, "size", None) is not None and file.size > MAX_FILE_SIZE_BYTES:  # type: ignore[operator]
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 25MB.")
+
+        content = await file.read()
+        if len(content) > MAX_FILE_SIZE_BYTES:
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 25MB.")
+
         fd, temp_path = tempfile.mkstemp(suffix=suffix)
-        
         with os.fdopen(fd, "wb") as f:
-            f.write(file.file.read())
-            
-        # Ingest the file using the existing logic (validates, scans, extracts)
+            f.write(content)
+
         try:
             text = ingest(temp_path)
         except IngestionValidationError as e:
-            # Catch known ingestion/validation errors and return 400 Bad Request
             raise HTTPException(status_code=400, detail=str(e))
-        
-        # Analyze using orchestrator
+
         contract_id = file.filename or str(uuid.uuid4())
-        result = _orchestrator.run(text, contract_id=contract_id)
-        
-        # Return serialized dictionary; FastAPI matches this against PipelineResultResponse
+        orchestrator = get_orchestrator()
+
+        # Run CPU/network-bound orchestrator pipeline in threadpool
+        result = await run_in_threadpool(orchestrator.run, text, contract_id=contract_id)
+
         return result.to_dict()
-        
+
     except HTTPException:
-        # Re-raise known HTTP exceptions (like the 400 above)
         raise
+    except (TimeoutError, tenacity.RetryError) as e:
+        logger.error(f"Timeout during contract analysis: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="AI reasoning or vector store timed out. Please try again.",
+        )
     except Exception as e:
-        # Any other unexpected exception during processing should return HTTP 500
-        logging.error(f"Unexpected error analyzing contract: {e}", exc_info=True)
+        corr_id = correlation_id_var.get()
+        logger.error(
+            f"Unexpected error analyzing contract [correlation_id={corr_id}]: {e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail="An internal server error occurred.")
     finally:
-        # Clean up temp file whether or not processing succeeded
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)

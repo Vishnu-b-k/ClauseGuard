@@ -6,27 +6,41 @@ PRD's Prompt Engineering Standards) that would be sent to GPT-4o via
 Google ADK. It's usable today for prompt review/eval even without API
 access.
 
-analyze() is MOCKED: instead of calling the LLM, it runs a small
-keyword-heuristic risk scorer so the pipeline produces plausible,
-evidence-grounded findings end-to-end right now.
-
-TODO: swap the body of analyze() for a real ADK agent invocation using
-build_prompt(), parse the LLM's JSON response into AgentFinding, and run
-it through the Structured Output Validation Layer's repair path (see
-src/orchestrator/lyzr_orchestrator.py) on parse failure. Keep the
-(clause, evidence) -> AgentFinding contract identical.
+analyze() invokes real Google ADK (`google.genai` / Gemini) when MOCK_MODE=False
+and GOOGLE_API_KEY is present, with tenacity retries and JSON repair forwarding.
+When MOCK_MODE=True or offline, runs keyword-heuristic risk scoring.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
+from typing import Any
+
+from google import genai
+from google.genai import types
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from src.agents.base import ADKAgent
-from src.models.schemas import AgentFinding, Clause, RetrievedEvidence, RiskLevel
+from src.config import (
+    GOOGLE_API_KEY,
+    LLM_MAX_RETRIES,
+    LLM_MODEL,
+    LLM_TIMEOUT_SEC,
+    MOCK_MODE,
+)
+from src.models.schemas import (
+    AgentFinding,
+    Clause,
+    RetrievedEvidence,
+    RiskLevel,
+    SchemaValidationError,
+)
 
 # Keyword -> (risk_level, human-readable rationale fragment)
 # Deliberately simple and inspectable -- a real LLM call replaces this
-# entirely; this exists so the mock produces defensible-looking output.
+# entirely when MOCK_MODE is False; this exists so the mock produces defensible-looking output.
 _RISK_SIGNALS: list[tuple[re.Pattern, RiskLevel, str]] = [
     (re.compile(r"unlimited liability|uncapped liability|without limitation", re.I),
      RiskLevel.CRITICAL, "unlimited/uncapped liability exposure"),
@@ -110,8 +124,25 @@ class LegalIntelligenceAgent(ADKAgent):
             evidence_block=evidence_block,
         )
 
-    def analyze(self, clause: Clause, evidence: list[RetrievedEvidence]) -> AgentFinding:
-        """MOCK. Replace with a real ADK call; see module docstring."""
+    @retry(
+        stop=stop_after_attempt(LLM_MAX_RETRIES),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
+    def _invoke_llm(self, prompt: str) -> str:
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+        )
+        response = client.models.generate_content(
+            model=LLM_MODEL,
+            contents=prompt,
+            config=config,
+        )
+        return response.text or ""
+
+    def _run_mock_analysis(self, clause: Clause, evidence: list[RetrievedEvidence]) -> AgentFinding:
+        """Heuristic mock analysis when MOCK_MODE is True or no API key."""
         normalized_text = re.sub(r"\s+", " ", clause.text)
         matched_signals = [
             (level, why) for pattern, level, why in _RISK_SIGNALS
@@ -164,3 +195,64 @@ class LegalIntelligenceAgent(ADKAgent):
         )
         finding.validate()
         return finding
+
+    def analyze(self, clause: Clause, evidence: list[RetrievedEvidence]) -> AgentFinding:
+        if MOCK_MODE or not GOOGLE_API_KEY:
+            return self._run_mock_analysis(clause, evidence)
+
+        prompt = self.build_prompt(clause, evidence)
+        raw_json = self._invoke_llm(prompt)
+
+        cleaned = raw_json.strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:]
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        try:
+            data = json.loads(cleaned)
+            if not isinstance(data, dict):
+                raise ValueError("JSON output must be a dictionary")
+
+            risk_str = str(data.get("risk_level", "low")).lower().strip()
+            try:
+                risk_level = RiskLevel(risk_str)
+            except ValueError:
+                risk_level = RiskLevel.LOW
+
+            raw_conf = data.get("confidence", 0.5)
+            confidence = round(min(max(float(raw_conf), 0.0), 1.0), 2)
+
+            cited_ids = data.get("cited_evidence_ids", [])
+            if not isinstance(cited_ids, list) or not cited_ids:
+                cited_ids = [e.evidence_id for e in evidence[:3]] or ["NONE-RETRIEVED"]
+            cited_ids = [str(x) for x in cited_ids if str(x).strip()]
+            if not cited_ids:
+                cited_ids = ["NONE-RETRIEVED"]
+
+            policy_refs = data.get("policy_refs", [])
+            if not isinstance(policy_refs, list):
+                policy_refs = []
+            policy_refs = [str(x) for x in policy_refs if str(x).strip()]
+
+            rationale = str(data.get("rationale", "")).strip()
+            if not rationale:
+                rationale = f"Analyzed clause {clause.clause_id} with {risk_level.value} risk."
+
+            finding = AgentFinding(
+                clause_id=clause.clause_id,
+                risk_level=risk_level,
+                confidence=confidence,
+                rationale=rationale,
+                cited_evidence_ids=cited_ids,
+                policy_refs=policy_refs,
+            )
+            finding.validate()
+            return finding
+        except (json.JSONDecodeError, ValueError, TypeError, SchemaValidationError) as exc:
+            raise SchemaValidationError(
+                f"Malformed LLM output for clause {clause.clause_id}: {exc}"
+            ) from exc

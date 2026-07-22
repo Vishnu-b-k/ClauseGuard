@@ -14,17 +14,26 @@ import json
 import sys
 from pathlib import Path
 
+try:
+    import dotenv
+    dotenv.load_dotenv()
+except ImportError:
+    pass
+
+from src.config import MOCK_MODE
 from src.ingestion.document_parser import ingest, IngestionValidationError
 from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
-from src.retrieval.qdrant_mock import MockQdrantRetrievalClient
+from src.retrieval import get_retrieval_client
 
 
-def _print_summary(result) -> None:
+def _print_summary(result, retrieval_client=None) -> None:
     risk_counts: dict[str, int] = {}
     for f in result.findings:
         risk_counts[f.risk_level.value] = risk_counts.get(f.risk_level.value, 0) + 1
 
+    client_name = retrieval_client.__class__.__name__ if retrieval_client else "Unknown"
     print(f"\nContract: {result.contract_id}")
+    print(f"Retrieval Engine: {client_name} (MOCK_MODE={MOCK_MODE})")
     print(f"Clauses processed: {result.clauses_processed}")
     print(f"Processing time: {result.processing_time_ms:.1f} ms")
     print(f"\nRisk breakdown (AI agent):")
@@ -47,12 +56,17 @@ def _print_summary(result) -> None:
         decision = next((d for d in result.policy_decisions if d.clause_id == cid), None)
         if finding and decision:
             rules = ", ".join(r.rule_id for r in decision.rules_fired)
+            cited = ", ".join(finding.cited_evidence_ids) if finding.cited_evidence_ids else "none"
             print(
                 f"  - {cid} [{finding.risk_level.value}->{decision.final_risk_level.value}, "
                 f"conf={finding.confidence}] rules: {rules}"
             )
+            print(f"    Rationale: {finding.rationale}")
+            print(f"    Cited Evidence: [{cited}]")
         elif finding:
+            cited = ", ".join(finding.cited_evidence_ids) if finding.cited_evidence_ids else "none"
             print(f"  - {cid} [{finding.risk_level.value}, conf={finding.confidence}] {finding.rationale}")
+            print(f"    Cited Evidence: [{cited}]")
         else:
             print(f"  - {cid} [validation escalation]")
     print(f"\nRedlines proposed: {len(result.redlines)}")
@@ -77,10 +91,11 @@ def main() -> int:
         return 1
 
     contract_id = Path(args.contract_path).stem
-    orchestrator = LyzrWorkflowOrchestrator(retrieval_client=MockQdrantRetrievalClient())
+    retrieval_client = get_retrieval_client()
+    orchestrator = LyzrWorkflowOrchestrator(retrieval_client=retrieval_client)
     result = orchestrator.run(text, contract_id=contract_id)
 
-    _print_summary(result)
+    _print_summary(result, retrieval_client=retrieval_client)
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
