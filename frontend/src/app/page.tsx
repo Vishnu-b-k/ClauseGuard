@@ -5,13 +5,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Upload, ShieldAlert, FileText, ArrowRight, Loader2, Sparkles, Zap, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { analyzeContract } from "@/lib/api";
+import { analyzeContract, checkContractStatus } from "@/lib/api";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
   const [showUpload, setShowUpload] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [pollingStatus, setPollingStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -26,17 +27,42 @@ export default function Home() {
   const handleUpload = async () => {
     if (!file) return;
     setLoading(true);
+    setPollingStatus("Uploading to S3 & Queuing Task...");
     setError(null);
     
     try {
-      const result = await analyzeContract(file);
-      sessionStorage.setItem("analysisResult", JSON.stringify(result));
-      router.push("/review");
+      const { task_id } = await analyzeContract(file);
+      
+      // Polling loop
+      setPollingStatus("Processing Document with AI Agents...");
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await checkContractStatus(task_id);
+          
+          if (statusRes.status === "completed" && statusRes.result) {
+            clearInterval(pollInterval);
+            sessionStorage.setItem("analysisResult", JSON.stringify(statusRes.result));
+            router.push("/review");
+          } else if (statusRes.state === "FAILURE") {
+            clearInterval(pollInterval);
+            setError("Analysis failed in background worker.");
+            setLoading(false);
+            setPollingStatus(null);
+          }
+        } catch (err: any) {
+          clearInterval(pollInterval);
+          console.error(err);
+          setError("Failed to check status.");
+          setLoading(false);
+          setPollingStatus(null);
+        }
+      }, 3000);
+
     } catch (err: any) {
       console.error(err);
       setError(err.response?.data?.detail || "An unexpected error occurred during analysis.");
-    } finally {
       setLoading(false);
+      setPollingStatus(null);
     }
   };
 
@@ -162,7 +188,6 @@ export default function Home() {
                         <Upload className="w-6 h-6 text-muted-foreground" strokeWidth={1.5} />
                       </div>
                       <p className="text-sm text-foreground">Click to browse files</p>
-                      <p className="text-xs text-muted-foreground mt-1">Secure upload processing</p>
                     </div>
                   )}
                 </div>
@@ -186,7 +211,7 @@ export default function Home() {
                   onClick={handleUpload} 
                   disabled={!file || loading}
                 >
-                  {loading ? "Processing..." : "Run AI analysis"}
+                  {loading ? (pollingStatus || "Processing...") : "Run AI analysis"}
                 </Button>
                 <Button 
                   variant="outline" 

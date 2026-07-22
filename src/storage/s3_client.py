@@ -22,7 +22,12 @@ class S3StorageClient:
         try:
             self.s3_client.head_bucket(Bucket=S3_BUCKET_NAME)
         except ClientError:
-            self.s3_client.create_bucket(Bucket=S3_BUCKET_NAME)
+            try:
+                self.s3_client.create_bucket(Bucket=S3_BUCKET_NAME)
+            except Exception as e:
+                print(f"Warning: Could not create bucket (MOCK MODE?): {e}")
+        except Exception as e:
+            print(f"Warning: Could not connect to S3 (MOCK MODE?): {e}")
 
     def upload_file(self, file_content: bytes, object_name: str) -> str:
         """Uploads a file to S3 and returns the object key."""

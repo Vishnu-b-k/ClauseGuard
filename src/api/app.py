@@ -23,6 +23,8 @@ from src.ingestion.document_parser import (
     IngestionValidationError,
     ingest,
 )
+from src.worker.celery_app import process_contract_task, celery_app
+from celery.result import AsyncResult
 from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
 from src.retrieval import get_retrieval_client
 from src.storage.s3_client import S3StorageClient
@@ -93,7 +95,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/api/v1/contracts/analyze", response_model=PipelineResultResponse)
+@app.post("/api/v1/contracts/analyze")
 async def analyze_contract(file: UploadFile = File(...)):
     """
     Analyzes an uploaded contract file asynchronously without blocking the event loop.
@@ -134,12 +136,10 @@ async def analyze_contract(file: UploadFile = File(...)):
         except Exception as e:
             logger.warning(f"Failed to upload to S3 (continuing analysis): {e}")
 
-        orchestrator = get_orchestrator()
+        # Dispatch async task to RabbitMQ / Celery
+        task = process_contract_task.delay(contract_id, text)
 
-        # Run async orchestrator pipeline
-        result = await orchestrator.run(text, contract_id=contract_id)
-
-        return result.to_dict()
+        return {"status": "processing", "contract_id": contract_id, "task_id": task.id}
 
     except HTTPException:
         raise
@@ -162,3 +162,22 @@ async def analyze_contract(file: UploadFile = File(...)):
                 os.remove(temp_path)
             except OSError:
                 pass
+
+@app.get("/api/v1/contracts/{task_id}/status")
+async def get_contract_status(task_id: str):
+    """
+    Checks the status of a background contract analysis task.
+    """
+    res = AsyncResult(task_id, app=celery_app)
+    
+    if res.state == 'PENDING':
+        return {"status": "processing", "state": res.state}
+    elif res.state != 'FAILURE':
+        if res.ready():
+            return {"status": "completed", "state": res.state, "result": res.get()}
+        else:
+            return {"status": "processing", "state": res.state}
+    else:
+        # Task failed
+        raise HTTPException(status_code=500, detail=str(res.info))
+
