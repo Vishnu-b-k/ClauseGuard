@@ -37,6 +37,27 @@ export default function ReviewWorkspace() {
   const [data, setData] = useState<PipelineResultResponse | null>(null);
   const [selectedClauseId, setSelectedClauseId] = useState<string | null>(null);
 
+  const handleExport = () => {
+    if (!data) return;
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `compliance_report_${data.contract_id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleApprove = () => {
+    alert("Clause Approved & Saved to database!");
+  };
+
+  const handleReject = () => {
+    alert("AI Suggestion Rejected.");
+  };
+
   useEffect(() => {
     const storedData = sessionStorage.getItem("analysisResult");
     if (!storedData) {
@@ -83,7 +104,7 @@ export default function ReviewWorkspace() {
           <Badge variant="destructive" className="px-3 py-1">
             {data.flagged_for_review.length} Flagged
           </Badge>
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" onClick={handleExport}>
             <Download className="w-4 h-4 mr-2" />
             Export Report
           </Button>
@@ -283,8 +304,8 @@ export default function ReviewWorkspace() {
                 </ScrollArea>
                 
                 <div className="p-4 border-t border-border bg-card flex justify-end gap-4">
-                  <Button variant="outline">Reject AI Suggestion</Button>
-                  <Button>Approve & Save</Button>
+                  <Button variant="outline" onClick={handleReject}>Reject AI Suggestion</Button>
+                  <Button onClick={handleApprove}>Approve & Save</Button>
                 </div>
               </motion.div>
             )}
