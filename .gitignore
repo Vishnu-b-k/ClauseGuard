@@ -22,3 +22,5 @@ Thumbs.db
 
 # Ignored directories
 Downloads/
+
+tmp/

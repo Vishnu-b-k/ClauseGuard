@@ -1,86 +1,129 @@
-"""
-FastAPI application for the Legal AI Pipeline (Slice 3).
-"""
+"""FastAPI application for the Legal AI Pipeline."""
 
-import os
-import uuid
-import tempfile
+from __future__ import annotations
+
 import logging
+import os
+import tempfile
+import uuid
+from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
-from src.ingestion.document_parser import ingest, IngestionValidationError
-from src.orchestrator.lyzr_orchestrator import LyzrWorkflowOrchestrator
-from src.retrieval.qdrant_mock import MockQdrantRetrievalClient
 from src.api.models import PipelineResultResponse
-
-app = FastAPI(title="Legal AI Contract Compliance API", version="1.0.0")
-
-# Enable permissive CORS for local development.
-# TODO: Add real origin allowlist before production matching the zero-trust framing.
-# Also, OAuth2/JWT/TLS and rate limiting should be placed at the Enterprise API Gateway layer.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+from src.bootstrap import create_orchestrator
+from src.config import AppSettings, load_settings
+from src.ingestion.document_parser import (
+    ALLOWED_EXTENSIONS,
+    IngestionValidationError,
+    ingest,
 )
 
-# Initialize the mock dependencies once for the app lifecycle
-_retrieval_client = MockQdrantRetrievalClient()
-_orchestrator = LyzrWorkflowOrchestrator(retrieval_client=_retrieval_client)
+logger = logging.getLogger(__name__)
 
 
-@app.get("/api/v1/health")
-def health():
-    return {"status": "ok"}
+def _validate_upload_name(file: UploadFile) -> str:
+    filename = Path(file.filename or "").name
+    suffix = Path(filename).suffix.lower()
+    if suffix not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported file type '{suffix}'. "
+                f"Allowed: {sorted(ALLOWED_EXTENSIONS)}"
+            ),
+        )
+    return filename
 
 
-@app.post("/api/v1/contracts/analyze", response_model=PipelineResultResponse)
-def analyze_contract(file: UploadFile = File(...)):
-    """
-    Analyzes an uploaded contract file.
-    
-    TODO: Move to `async def` once real ADK/LLM calls (which are I/O-bound) are wired in.
-    Currently synchronous as it runs CPU-bound mock logic.
-    """
-    temp_path = ""
+def _persist_upload(file: UploadFile, settings: AppSettings) -> str:
+    """Write an upload in bounded chunks and return its temporary path."""
+    filename = _validate_upload_name(file)
+    suffix = Path(filename).suffix.lower()
+    descriptor, temp_path = tempfile.mkstemp(suffix=suffix)
+    bytes_written = 0
+
     try:
-        # Write the uploaded file to a temporary path, maintaining the extension
-        suffix = os.path.splitext(file.filename)[1] if file.filename else ""
-        fd, temp_path = tempfile.mkstemp(suffix=suffix)
-        
-        with os.fdopen(fd, "wb") as f:
-            f.write(file.file.read())
-            
-        # Ingest the file using the existing logic (validates, scans, extracts)
-        try:
-            text = ingest(temp_path)
-        except IngestionValidationError as e:
-            # Catch known ingestion/validation errors and return 400 Bad Request
-            raise HTTPException(status_code=400, detail=str(e))
-        
-        # Analyze using orchestrator
-        contract_id = file.filename or str(uuid.uuid4())
-        result = _orchestrator.run(text, contract_id=contract_id)
-        
-        # Return serialized dictionary; FastAPI matches this against PipelineResultResponse
-        return result.to_dict()
-        
-    except HTTPException:
-        # Re-raise known HTTP exceptions (like the 400 above)
+        with os.fdopen(descriptor, "wb") as destination:
+            while chunk := file.file.read(settings.upload_chunk_size_bytes):
+                bytes_written += len(chunk)
+                if bytes_written > settings.max_upload_size_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "File exceeds the maximum upload size "
+                            f"of {settings.max_upload_size_bytes} bytes"
+                        ),
+                    )
+                destination.write(chunk)
+        return temp_path
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
         raise
-    except Exception as e:
-        # Any other unexpected exception during processing should return HTTP 500
-        logging.error(f"Unexpected error analyzing contract: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
-    finally:
-        # Clean up temp file whether or not processing succeeded
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+
+
+def create_app(settings: AppSettings | None = None) -> FastAPI:
+    """Create a configured API instance for production or test use."""
+    runtime_settings = settings or load_settings()
+    app = FastAPI(
+        title="Legal AI Contract Compliance API",
+        version="1.1.0",
+        docs_url="/docs" if runtime_settings.enable_docs else None,
+        redoc_url="/redoc" if runtime_settings.enable_docs else None,
+        openapi_url="/openapi.json" if runtime_settings.enable_docs else None,
+    )
+    app.state.settings = runtime_settings
+    app.state.orchestrator = create_orchestrator(runtime_settings)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(runtime_settings.allowed_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+    @app.get("/api/v1/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/api/v1/ready")
+    def readiness() -> dict[str, str]:
+        return {"status": "ready", "environment": runtime_settings.environment}
+
+    @app.post(
+        "/api/v1/contracts/analyze",
+        response_model=PipelineResultResponse,
+    )
+    def analyze_contract(file: UploadFile = File(...)) -> dict:
+        """Validate, ingest, and analyze an uploaded contract."""
+        temp_path = ""
+        try:
+            temp_path = _persist_upload(file, runtime_settings)
+            text = ingest(temp_path)
+            contract_id = Path(file.filename or str(uuid.uuid4())).name
+            result = app.state.orchestrator.run(text, contract_id=contract_id)
+            return result.to_dict()
+        except IngestionValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Unexpected error analyzing contract")
+            raise HTTPException(
+                status_code=500,
+                detail="An internal server error occurred.",
+            ) from None
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    logger.warning("Could not remove temporary upload: %s", temp_path)
+
+    return app
+
+
+app = create_app()
