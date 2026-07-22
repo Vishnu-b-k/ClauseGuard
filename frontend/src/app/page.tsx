@@ -102,6 +102,28 @@ export default function Home() {
                 <p className="text-muted-foreground text-sm">Deterministic rule engine ensures no high-risk clause slips past.</p>
               </div>
             </div>
+
+            {/* Pop-Culture Lawyer Vibes */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.6, duration: 0.8 }}
+              className="mt-16 w-full max-w-4xl"
+            >
+              <p className="text-sm uppercase tracking-widest text-muted-foreground mb-6 font-semibold">The Greatest Legal Minds Agree</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div className="flex flex-col items-center text-center p-6 bg-card/40 rounded-2xl border border-border/50 shadow-sm backdrop-blur-sm">
+                  <p className="italic text-lg text-foreground mb-4">"When you need a *criminal* lawyer... but for contracts, ClauseGuard is the only call you make."</p>
+                  <p className="font-bold text-primary text-xl">— Saul Goodman</p>
+                  <p className="text-sm text-muted-foreground">Albuquerque, NM</p>
+                </div>
+                <div className="flex flex-col items-center text-center p-6 bg-card/40 rounded-2xl border border-border/50 shadow-sm backdrop-blur-sm">
+                  <p className="italic text-lg text-foreground mb-4">"Justice is blind, but ClauseGuard's radar-sense precision sees every hidden liability."</p>
+                  <p className="font-bold text-primary text-xl">— Matt Murdock</p>
+                  <p className="text-sm text-muted-foreground">Hell's Kitchen, NY</p>
+                </div>
+              </div>
+            </motion.div>
           </motion.div>
         ) : (
           <motion.div 
