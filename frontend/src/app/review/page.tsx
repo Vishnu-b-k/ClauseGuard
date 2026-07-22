@@ -42,18 +42,77 @@ export default function ReviewWorkspace() {
   const handleExport = () => {
     if (!data) return;
     setExporting(true);
-    setTimeout(() => {
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `compliance_report_${data.contract_id}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setExporting(false);
-    }, 500);
+    setTimeout(async () => {
+      try {
+        if (!data.all_clauses || data.all_clauses.length === 0) {
+          alert("This contract was analyzed before full document PDF export was supported. Please re-upload it to get the PDF feature.");
+          setExporting(false);
+          return;
+        }
+
+        // Dynamically import jsPDF so it doesn't break SSR
+        const { jsPDF } = await import("jspdf");
+        const doc = new jsPDF({
+          orientation: "portrait",
+          unit: "pt",
+          format: "letter"
+        });
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.text("Amended Legal Contract", 40, 50);
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 100, 100);
+        doc.text(`Contract ID: ${data.contract_id}`, 40, 70);
+        doc.text(`Generated on: ${new Date().toLocaleString()}`, 40, 85);
+        
+        doc.setLineWidth(1);
+        doc.setDrawColor(200, 200, 200);
+        doc.line(40, 95, 570, 95);
+
+        let yPos = 120;
+        doc.setFontSize(11);
+        
+        data.all_clauses.forEach((clause) => {
+          let textToPrint = clause.text;
+          let isEdited = false;
+          
+          const redline = data.redlines.find(r => r.clause_id === clause.clause_id);
+          if (redline && resolvedClauses[clause.clause_id] === 'approved') {
+            textToPrint = redline.suggested_text;
+            isEdited = true;
+          }
+          
+          if (isEdited) {
+            doc.setFont("helvetica", "bold");
+            // Dark luxury red color for approved edits to make them pop in the PDF
+            doc.setTextColor(163, 32, 32); 
+          } else {
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(40, 40, 40);
+          }
+          
+          const lines = doc.splitTextToSize(textToPrint, 530); 
+          const requiredHeight = lines.length * 15;
+          
+          if (yPos + requiredHeight > 730) { 
+            doc.addPage();
+            yPos = 50;
+          }
+          
+          doc.text(lines, 40, yPos);
+          yPos += requiredHeight + 15; 
+        });
+
+        doc.save(`amended_contract_${data.contract_id}.pdf`);
+      } catch (error) {
+        console.error("PDF generation failed", error);
+      } finally {
+        setExporting(false);
+      }
+    }, 100);
   };
 
   const advanceToNext = (currentId: string) => {
