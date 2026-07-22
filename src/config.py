@@ -26,7 +26,7 @@ RETRIEVAL_TOP_K: int = int(os.getenv("RETRIEVAL_TOP_K", "5"))
 REDLINE_TRIGGER_MIN_RISK: str = os.getenv("REDLINE_TRIGGER_MIN_RISK", "medium")
 
 # --- Execution Mode ---
-MOCK_MODE: bool = os.getenv("MOCK_MODE", "true").lower() in ("true", "1", "yes")
+MOCK_MODE: bool = os.getenv("MOCK_MODE", "false").lower() in ("true", "1", "yes")
 
 # --- Google ADK / LLM Settings ---
 GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
