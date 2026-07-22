@@ -70,45 +70,56 @@ export default function Home() {
               </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl text-left">
-              <div className="p-6 rounded-xl bg-card border border-border shadow-none">
+            <motion.div 
+              initial="hidden"
+              animate="visible"
+              variants={{
+                hidden: { opacity: 0 },
+                visible: {
+                  opacity: 1,
+                  transition: { staggerChildren: 0.1, delayChildren: 0.1 }
+                }
+              }}
+              className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl text-left"
+            >
+              <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }} whileHover={{ y: -2 }} className="p-6 rounded-xl bg-card border border-border shadow-none transition-shadow hover:shadow-sm">
                 <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-muted text-foreground mb-4 border border-border">
                   Dual-agent reasoning
                 </div>
                 <p className="text-foreground text-sm leading-relaxed">Agentic AI analyzes risks and suggests actionable redlines directly on the document text.</p>
-              </div>
-              <div className="p-6 rounded-xl bg-card border border-border shadow-none">
+              </motion.div>
+              <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }} whileHover={{ y: -2 }} className="p-6 rounded-xl bg-card border border-border shadow-none transition-shadow hover:shadow-sm">
                 <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-muted text-foreground mb-4 border border-border">
                   Hybrid retrieval
                 </div>
                 <p className="text-foreground text-sm leading-relaxed">Grounds every decision against your standard clauses using Qdrant vector search.</p>
-              </div>
-              <div className="p-6 rounded-xl bg-card border border-border shadow-none">
+              </motion.div>
+              <motion.div variants={{ hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } }} whileHover={{ y: -2 }} className="p-6 rounded-xl bg-card border border-border shadow-none transition-shadow hover:shadow-sm">
                 <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-destructive text-destructive-foreground mb-4 border border-destructive">
                   Policy validator
                 </div>
                 <p className="text-foreground text-sm leading-relaxed">Deterministic rule engine ensures no high-risk clause slips past the automated review.</p>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
 
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.2, duration: 0.4 }}
+              transition={{ delay: 0.4, duration: 0.6 }}
               className="mt-16 w-full max-w-4xl"
             >
               <p className="text-xs text-muted-foreground mb-4">The greatest legal minds agree</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="flex flex-col items-start text-left p-6 bg-card rounded-xl border border-border shadow-none">
+                <motion.div whileHover={{ scale: 1.01 }} className="flex flex-col items-start text-left p-6 bg-card rounded-xl border border-border shadow-none transition-colors hover:bg-muted/30">
                   <p className="text-foreground text-sm leading-relaxed mb-4">"When you need a *criminal* lawyer... but for contracts, ClauseGuard is the only call you make."</p>
                   <p className="font-medium text-foreground text-sm">Saul Goodman</p>
                   <p className="text-xs text-muted-foreground">Albuquerque, NM</p>
-                </div>
-                <div className="flex flex-col items-start text-left p-6 bg-card rounded-xl border border-border shadow-none">
+                </motion.div>
+                <motion.div whileHover={{ scale: 1.01 }} className="flex flex-col items-start text-left p-6 bg-card rounded-xl border border-border shadow-none transition-colors hover:bg-muted/30">
                   <p className="text-foreground text-sm leading-relaxed mb-4">"Justice is blind, but ClauseGuard's radar-sense precision sees every hidden liability."</p>
                   <p className="font-medium text-foreground text-sm">Matt Murdock</p>
                   <p className="text-xs text-muted-foreground">Hell's Kitchen, NY</p>
-                </div>
+                </motion.div>
               </div>
             </motion.div>
           </motion.div>
